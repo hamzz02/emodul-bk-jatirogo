@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { BookOpen, Users, Brain, ClipboardCheck, UserCircle, BookText, ChevronLeft, ChevronRight, LogOut, ShieldAlert, Menu, X } from 'lucide-react';
+import { useState } from 'react';
+import { BookOpen, Users, Brain, ClipboardCheck, UserCircle, BookText, ChevronLeft, ChevronRight, LogOut, ShieldAlert, Menu, X, AlertTriangle } from 'lucide-react';
 
-import { db } from './firebase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { eBookPages } from './dataMateri';
 import AdminView from './components/AdminView';
 
@@ -15,20 +14,58 @@ export default function App() {
   const [progress, setProgress] = useState({ rpl1: false, rpl2: false, rpl3: false });
   const [submissionStatus, setSubmissionStatus] = useState({ refleksi: false, evaluasi: false, skorEvaluasi: null });
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const nama = e.target.nama.value;
-    const kelas = e.target.kelas.value;
+    const nama = e.target.nama.value.trim();
+    const kelas = e.target.kelas.value.trim();
     
     if (nama === 'Admin' && kelas === 'admin123') {
-      setIsAdmin(true); setUser({ nama: 'Administrator', kelas: 'Admin' }); setCurrentView('admin');
+      setIsAdmin(true);
+      setUser({ nama: 'Administrator', kelas: 'Admin' });
+      setCurrentView('admin');
     } else {
-      setUser({ nama, kelas }); setCurrentView('dashboard');
+      setUser({ nama, kelas });
+      setCurrentView('dashboard');
+
+      // Ambil progres yang sudah tersimpan sebelumnya di Supabase
+      if (isSupabaseConfigured) {
+        try {
+          const [rplRes, refRes, evalRes] = await Promise.all([
+            supabase.from('konseling_rpl').select('rpl').eq('userId', nama).eq('userClass', kelas),
+            supabase.from('refleksi').select('id').eq('userId', nama).eq('userClass', kelas).limit(1),
+            supabase.from('evaluasi').select('id, skor').eq('userId', nama).eq('userClass', kelas).order('created_at', { ascending: false }).limit(1)
+          ]);
+
+          if (rplRes.data && rplRes.data.length > 0) {
+            const newProg = { rpl1: false, rpl2: false, rpl3: false };
+            rplRes.data.forEach(item => {
+              if (item.rpl && Object.prototype.hasOwnProperty.call(newProg, item.rpl)) {
+                newProg[item.rpl] = true;
+              }
+            });
+            setProgress(newProg);
+          }
+
+          const hasRef = Boolean(refRes.data && refRes.data.length > 0);
+          const hasEval = Boolean(evalRes.data && evalRes.data.length > 0);
+          const score = hasEval ? evalRes.data[0].skor : null;
+
+          setSubmissionStatus({
+            refleksi: hasRef,
+            evaluasi: hasEval,
+            skorEvaluasi: score
+          });
+        } catch (err) {
+          console.warn('Gagal memuat progres siswa sebelumnya:', err);
+        }
+      }
     }
   };
 
   const handleLogout = () => {
-    setUser(null); setIsAdmin(false); setCurrentView('login');
+    setUser(null);
+    setIsAdmin(false);
+    setCurrentView('login');
     setProgress({ rpl1: false, rpl2: false, rpl3: false });
     setSubmissionStatus({ refleksi: false, evaluasi: false, skorEvaluasi: null });
   };
@@ -36,7 +73,7 @@ export default function App() {
   const navigateTo = (view) => {
     setCurrentView(view);
     setIsSidebarOpen(false); // Tutup sidebar setelah klik menu di HP
-  }
+  };
 
   if (!user) {
     return (
@@ -46,6 +83,17 @@ export default function App() {
             <h1 className="text-2xl font-bold text-blue-600 mb-2">E-MODUL BK</h1>
             <p className="text-gray-600">SMKN JATIROGO</p>
           </div>
+
+          {!isSupabaseConfigured && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs flex items-start gap-2">
+              <AlertTriangle size={18} className="shrink-0 text-amber-600 mt-0.5" />
+              <div>
+                <strong>Konfigurasi Supabase Diperlukan:</strong>
+                <p>Isi <code>VITE_SUPABASE_URL</code> dan <code>VITE_SUPABASE_ANON_KEY</code> pada file <code>.env</code>.</p>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
@@ -165,8 +213,8 @@ function MateriView() {
         {eBookPages[page].content}
       </div>
       <div className="p-4 border-t flex justify-between items-center bg-gray-50 rounded-b-xl">
-        <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 flex gap-2 items-center text-sm md:text-base"><ChevronLeft size={16}/> <span className="hidden md:inline">Sebelumn</span></button>
-        <button onClick={() => setPage(p => Math.min(16, p + 1))} disabled={page === 16} className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 flex gap-2 items-center text-sm md:text-base"><span className="hidden md:inline">Selanjut</span> <ChevronRight size={16}/></button>
+        <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 flex gap-2 items-center text-sm md:text-base"><ChevronLeft size={16}/> <span className="hidden md:inline">Sebelumnya</span></button>
+        <button onClick={() => setPage(p => Math.min(16, p + 1))} disabled={page === 16} className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 flex gap-2 items-center text-sm md:text-base"><span className="hidden md:inline">Selanjutnya</span> <ChevronRight size={16}/></button>
       </div>
     </div>
   );
@@ -174,12 +222,28 @@ function MateriView() {
 
 function KonselingView({ user, progress, setProgress }) {
   const [activeRPL, setActiveRPL] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const saveRPL = async (rplId, data) => {
+    setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'konseling_rpl'), { ...data, userId: user.nama, userClass: user.kelas, rpl: rplId, timestamp: serverTimestamp() });
+      const payload = {
+        ...data,
+        userId: user.nama,
+        userClass: user.kelas,
+        rpl: rplId
+      };
+      const { error } = await supabase.from('konseling_rpl').insert([payload]);
+      if (error) throw error;
       setProgress({ ...progress, [rplId]: true });
       setActiveRPL(null);
-    } catch (error) { alert('Error menyimpan data'); }
+      alert('Data ' + rplId.toUpperCase() + ' berhasil disimpan!');
+    } catch (error) {
+      console.error(error);
+      alert('Gagal menyimpan data: ' + (error.message || 'Periksa koneksi database'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -201,7 +265,9 @@ function KonselingView({ user, progress, setProgress }) {
               <div className="space-y-4">
                 <div><label className="block text-sm font-medium mb-1">Kekuatan / Kelebihan yang saya miliki:</label><textarea name="q1" required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-blue-500" rows="3"></textarea></div>
                 <div><label className="block text-sm font-medium mb-1">Hal yang ingin saya perbaiki:</label><textarea name="q2" required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-blue-500" rows="3"></textarea></div>
-                <button type="submit" className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded">Selesai & Simpan RPL 1</button>
+                <button type="submit" disabled={isSubmitting} className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded disabled:opacity-50">
+                  {isSubmitting ? 'Menyimpan...' : 'Selesai & Simpan RPL 1'}
+                </button>
               </div>
             </form>
           )}
@@ -210,7 +276,9 @@ function KonselingView({ user, progress, setProgress }) {
              <form onSubmit={(e) => { e.preventDefault(); saveRPL('rpl2', { pemicu: e.target.q1.value }); }}>
                <h3 className="text-xl font-bold mb-4">RPL 2 - Pemicu Membolos</h3>
                <textarea name="q1" placeholder="Ceritakan situasi yang memicu..." required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-blue-500 mb-4" rows="3"></textarea>
-               <button type="submit" className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded">Selesai & Simpan RPL 2</button>
+               <button type="submit" disabled={isSubmitting} className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded disabled:opacity-50">
+                 {isSubmitting ? 'Menyimpan...' : 'Selesai & Simpan RPL 2'}
+               </button>
              </form>
           )}
 
@@ -218,7 +286,9 @@ function KonselingView({ user, progress, setProgress }) {
              <form onSubmit={(e) => { e.preventDefault(); saveRPL('rpl3', { komitmen: e.target.q1.value }); }}>
                <h3 className="text-xl font-bold mb-4">RPL 3 - Komitmen</h3>
                <textarea name="q1" placeholder="Apa rencana aksimu selanjutnya..." required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-blue-500 mb-4" rows="3"></textarea>
-               <button type="submit" className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded">Selesai & Simpan RPL 3</button>
+               <button type="submit" disabled={isSubmitting} className="w-full md:w-auto bg-green-600 hover:bg-green-700 transition text-white px-6 py-2 rounded disabled:opacity-50">
+                 {isSubmitting ? 'Menyimpan...' : 'Selesai & Simpan RPL 3'}
+               </button>
              </form>
           )}
         </div>
@@ -238,14 +308,28 @@ function RPLCard({ title, bobot, done, onClick }) {
 
 function RefleksiView({ user, submissionStatus, setSubmissionStatus }) {
   const [answers, setAnswers] = useState({ q1: '', q2: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const isDone = submissionStatus.refleksi;
 
   const submitRefleksi = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'refleksi'), { ...answers, userId: user.nama, userClass: user.kelas, timestamp: serverTimestamp() });
+      const payload = {
+        ...answers,
+        userId: user.nama,
+        userClass: user.kelas
+      };
+      const { error } = await supabase.from('refleksi').insert([payload]);
+      if (error) throw error;
       setSubmissionStatus(prev => ({ ...prev, refleksi: true }));
-    } catch (err) { alert('Error: ' + err.message); }
+      alert('Refleksi diri berhasil dikirim ke Supabase!');
+    } catch (err) {
+      console.error(err);
+      alert('Gagal mengirim refleksi: ' + (err.message || 'Periksa koneksi database'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -254,7 +338,9 @@ function RefleksiView({ user, submissionStatus, setSubmissionStatus }) {
       <form onSubmit={submitRefleksi} className="space-y-6">
         <div><label className="block mb-2 font-medium text-gray-700 text-sm md:text-base">1. Apa yang biasanya kamu rasakan sebelum memutuskan untuk membolos?</label><textarea required value={answers.q1} onChange={(e) => setAnswers({...answers, q1: e.target.value})} disabled={isDone} className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" rows="3"></textarea></div>
         <div><label className="block mb-2 font-medium text-gray-700 text-sm md:text-base">2. Menurutmu, apa dampak perilaku tersebut bagi dirimu?</label><textarea required value={answers.q2} onChange={(e) => setAnswers({...answers, q2: e.target.value})} disabled={isDone} className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" rows="3"></textarea></div>
-        <button type="submit" disabled={isDone} className={`w-full py-3 rounded-lg font-bold transition-colors ${isDone ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}>{isDone ? '✓ Refleksi Telah Terkirim' : 'Kirim Refleksi'}</button>
+        <button type="submit" disabled={isDone || isSubmitting} className={`w-full py-3 rounded-lg font-bold transition-colors ${isDone ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'}`}>
+          {isDone ? '✓ Refleksi Telah Terkirim' : isSubmitting ? 'Mengirim Refleksi...' : 'Kirim Refleksi'}
+        </button>
       </form>
     </div>
   );
@@ -262,6 +348,7 @@ function RefleksiView({ user, submissionStatus, setSubmissionStatus }) {
 
 function EvaluasiView({ user, submissionStatus, setSubmissionStatus }) {
   const [jawaban, setJawaban] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const isDone = submissionStatus.evaluasi;
   const daftarPertanyaan = [
     { id: 1, pertanyaan: "Kesadaran diri (self awareness) adalah kemampuan siswa untuk ....", opsi: ["A. Mengikuti semua ajakan teman agar dianggap kompak", "B. Mengenali dan memahami pikiran, perasaan, serta perilaku diri sendiri", "C. Menghindari tanggung jawab ketika menghadapi pelajaran yang sulit", "D. Menyembunyikan perasaan cemas dengan cara tidak masuk sekolah"], jawabanBenar: "B. Mengenali dan memahami pikiran, perasaan, serta perilaku diri sendiri" },
@@ -281,10 +368,25 @@ function EvaluasiView({ user, submissionStatus, setSubmissionStatus }) {
     if (Object.keys(jawaban).length < 10) return alert("Harap jawab semua 10 pertanyaan sebelum mengirim.");
     let hitungSkor = 0;
     daftarPertanyaan.forEach(item => { if (jawaban[item.id] === item.jawabanBenar) hitungSkor += 10; });
+    
+    setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'evaluasi'), { jawaban, skor: hitungSkor, userId: user.nama, userClass: user.kelas, timestamp: serverTimestamp() });
+      const payload = {
+        jawaban,
+        skor: hitungSkor,
+        userId: user.nama,
+        userClass: user.kelas
+      };
+      const { error } = await supabase.from('evaluasi').insert([payload]);
+      if (error) throw error;
       setSubmissionStatus(prev => ({ ...prev, evaluasi: true, skorEvaluasi: hitungSkor }));
-    } catch (err) { alert('Error: ' + err.message); }
+      alert(`Evaluasi berhasil dikirim ke Supabase! Skor Anda: ${hitungSkor}/100`);
+    } catch (err) {
+      console.error(err);
+      alert('Gagal mengirim evaluasi: ' + (err.message || 'Periksa koneksi database'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -304,7 +406,9 @@ function EvaluasiView({ user, submissionStatus, setSubmissionStatus }) {
             </div>
           </div>
         ))}
-        <button type="submit" disabled={isDone} className={`w-full py-3 rounded-lg font-bold transition-colors ${isDone ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600 text-white'}`}>{isDone ? '✓ Jawaban Evaluasi Telah Terkirim' : 'Kirim Jawaban'}</button>
+        <button type="submit" disabled={isDone || isSubmitting} className={`w-full py-3 rounded-lg font-bold transition-colors ${isDone ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50'}`}>
+          {isDone ? '✓ Jawaban Evaluasi Telah Terkirim' : isSubmitting ? 'Mengirim Jawaban...' : 'Kirim Jawaban'}
+        </button>
       </form>
       {isDone && (
         <div className="mt-8 p-6 bg-green-50 border border-green-200 text-green-800 rounded-xl text-center shadow-sm">
@@ -318,7 +422,10 @@ function EvaluasiView({ user, submissionStatus, setSubmissionStatus }) {
 
 function ProfilView({ user, progress, submissionStatus }) {
   let totalProgress = 0;
-  if (progress.rpl1) totalProgress += 30; if (progress.rpl2) totalProgress += 30; if (progress.rpl3) totalProgress += 40;
+  if (progress.rpl1) totalProgress += 30;
+  if (progress.rpl2) totalProgress += 30;
+  if (progress.rpl3) totalProgress += 40;
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-10">
       <div className="bg-white p-6 rounded-xl shadow text-center">
