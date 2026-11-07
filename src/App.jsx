@@ -156,7 +156,7 @@ function MainApp() {
                 name="kelas"
                 required
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm transition"
-                placeholder="Contoh: XI TKJ 1 atau admin123"
+                placeholder="Contoh: XI TKJ 1"
               />
             </div>
             <button
@@ -165,10 +165,6 @@ function MainApp() {
             >
               Masuk ke E-Modul
             </button>
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-gray-100 text-center text-xs text-gray-400">
-            Akses Guru BK: Nama = <code>Admin</code> & Kelas = <code>admin123</code>
           </div>
         </form>
       </div>
